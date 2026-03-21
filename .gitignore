@@ -1,0 +1,20 @@
+# OAuth credentials — NEVER commit these
+credentials.json
+token.json
+.streamlit/secrets.toml
+
+# Your personal files
+resume.pdf
+recruiters.xlsx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
