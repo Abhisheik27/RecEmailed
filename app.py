@@ -58,10 +58,11 @@ ALL_STATUSES = [STATUS_NOT_CONTACTED, STATUS_DRAFTED, STATUS_IN_CONTACT]
 # Required columns in the Google Sheet
 REQUIRED_COLUMNS = ["Name", "Email", "Company", "Role", "Status"]
 
-# Default email template
-DEFAULT_SUBJECT = "Interested in {Role} opportunity at {Company}"
+# Default email templates
+# ROLE-SPECIFIC — used when the Role column has a value
+DEFAULT_SUBJECT_ROLE = "Interested in {Role} opportunity at {Company}"
 
-DEFAULT_TEMPLATE = """\
+DEFAULT_TEMPLATE_ROLE = """\
 Hi {Name},
 
 I hope this message finds you well! I came across the {Role} position \
@@ -70,6 +71,29 @@ at {Company} and I'm very excited about the opportunity.
 I believe my skills and experience align well with what your team is \
 looking for. I've attached my resume for your reference and would love \
 the chance to discuss how I can contribute to {Company}.
+
+Please let me know if there's a convenient time to chat. I'm happy to \
+work around your schedule.
+
+Thank you for your time, and I look forward to hearing from you!
+
+Best regards,
+[Your Name]\
+"""
+
+# GENERIC — used when no specific role is mentioned
+DEFAULT_SUBJECT_GENERIC = "Exploring opportunities at {Company}"
+
+DEFAULT_TEMPLATE_GENERIC = """\
+Hi {Name},
+
+I hope this message finds you well! I'm reaching out because I'm \
+actively seeking opportunities at {Company} and would love to connect.
+
+With my background in [your expertise here], I believe I could be a \
+great fit for your team. I've attached my resume for your reference \
+and would appreciate any guidance on open positions that might align \
+with my skills.
 
 Please let me know if there's a convenient time to chat. I'm happy to \
 work around your schedule.
@@ -255,14 +279,33 @@ def delete_recruiter(worksheet, row_index: int):
     worksheet.delete_rows(sheet_row)
 
 
+def _get_col_map(worksheet) -> dict:
+    """
+    Read the header row from the Sheet and return a mapping of
+    column name → 1-indexed column number.
+
+    Example: {"Name": 1, "Email": 2, "Company": 3, "Role": 4, "Status": 5}
+    (but adapts if the user has columns in a different order)
+    """
+    headers = worksheet.row_values(1)
+    col_map = {}
+    for i, header in enumerate(headers):
+        h = str(header).strip().title()
+        if h in REQUIRED_COLUMNS:
+            col_map[h] = i + 1  # gspread is 1-indexed
+    return col_map
+
+
 def update_status(worksheet, row_index: int, new_status: str):
     """
     Update the Status column for a specific recruiter in the Sheet.
 
-    The Status column is E (column 5).
+    Dynamically finds the Status column position from the header row.
     """
+    col_map = _get_col_map(worksheet)
+    status_col = col_map.get("Status", 5)  # Fallback to 5
     sheet_row = row_index + 2
-    worksheet.update_cell(sheet_row, 5, new_status)
+    worksheet.update_cell(sheet_row, status_col, new_status)
 
 
 def batch_update_status(worksheet, row_indices: list[int], new_status: str):
@@ -272,10 +315,13 @@ def batch_update_status(worksheet, row_indices: list[int], new_status: str):
     Uses batch_update to minimise API calls — important when creating
     drafts for many recruiters at once.
     """
+    col_map = _get_col_map(worksheet)
+    status_col = col_map.get("Status", 5)
+
     cells = []
     for idx in row_indices:
         sheet_row = idx + 2
-        cells.append(gspread.Cell(sheet_row, 5, new_status))
+        cells.append(gspread.Cell(sheet_row, status_col, new_status))
 
     if cells:
         worksheet.update_cells(cells)
@@ -292,8 +338,8 @@ def save_edits_to_sheet(worksheet, original_df: pd.DataFrame, edited_df: pd.Data
     Returns:
         Number of cells updated.
     """
-    # Column mapping: DataFrame column name → sheet column number (1-indexed)
-    col_map = {"Name": 1, "Email": 2, "Company": 3, "Role": 4, "Status": 5}
+    # Dynamically detect column positions from the Sheet header
+    col_map = _get_col_map(worksheet)
 
     cells_to_update = []
 
@@ -302,6 +348,9 @@ def save_edits_to_sheet(worksheet, original_df: pd.DataFrame, edited_df: pd.Data
             continue
 
         for col_name, sheet_col in col_map.items():
+            if col_name not in edited_df.columns:
+                continue
+
             old_val = str(original_df.at[idx, col_name])
             new_val = str(edited_df.at[idx, col_name])
 
@@ -733,18 +782,44 @@ def main():
     st.divider()
 
     # ------------------------------------------------------------------
-    # SECTION 3: Email Template
+    # SECTION 3: Email Templates
     # ------------------------------------------------------------------
-    st.header("3️⃣ Email Template")
-    st.caption("Placeholders: **{Name}**, **{Company}**, **{Role}**")
-
-    subject_template = st.text_input(
-        "Subject Line", value=DEFAULT_SUBJECT,
+    st.header("3️⃣ Email Templates")
+    st.caption(
+        "Two templates: one for when you know the **specific role**, "
+        "one **generic** for when you don't. The app auto-picks based on "
+        "whether the Role column is filled for each recruiter."
     )
 
-    body_template = st.text_area(
-        "Email Body", value=DEFAULT_TEMPLATE, height=250,
-    )
+    # --- Role-Specific Template ---
+    with st.expander("🎯 Role-Specific Template (when Role is filled)", expanded=True):
+        st.caption("Placeholders: **{Name}**, **{Company}**, **{Role}**")
+        subject_role = st.text_input(
+            "Subject Line (role-specific)",
+            value=DEFAULT_SUBJECT_ROLE,
+            key="subject_role",
+        )
+        body_role = st.text_area(
+            "Email Body (role-specific)",
+            value=DEFAULT_TEMPLATE_ROLE,
+            height=250,
+            key="body_role",
+        )
+
+    # --- Generic Template ---
+    with st.expander("📨 Generic Template (when Role is empty)", expanded=False):
+        st.caption("Placeholders: **{Name}**, **{Company}** (no {Role} needed)")
+        subject_generic = st.text_input(
+            "Subject Line (generic)",
+            value=DEFAULT_SUBJECT_GENERIC,
+            key="subject_generic",
+        )
+        body_generic = st.text_area(
+            "Email Body (generic)",
+            value=DEFAULT_TEMPLATE_GENERIC,
+            height=250,
+            key="body_generic",
+        )
 
     # Preview
     if (
@@ -756,20 +831,30 @@ def main():
         ]
         if not selected_rows.empty:
             first = selected_rows.iloc[0]
-            with st.expander("👁️ Preview email for first selected recruiter"):
+            has_role = bool(str(first.get("Role", "")).strip())
+            template_type = "🎯 Role-Specific" if has_role else "📨 Generic"
+
+            with st.expander(f"👁️ Preview — using {template_type} template"):
                 try:
-                    st.markdown(f"**To:** {first['Email']}")
-                    st.markdown(
-                        f"**Subject:** {subject_template.format(Name=first['Name'], Company=first['Company'], Role=first['Role'])}"
-                    )
-                    st.divider()
-                    st.text(
-                        body_template.format(
-                            Name=first["Name"],
-                            Company=first["Company"],
-                            Role=first["Role"],
+                    if has_role:
+                        subj = subject_role.format(
+                            Name=first["Name"], Company=first["Company"], Role=first["Role"]
                         )
-                    )
+                        bod = body_role.format(
+                            Name=first["Name"], Company=first["Company"], Role=first["Role"]
+                        )
+                    else:
+                        subj = subject_generic.format(
+                            Name=first["Name"], Company=first["Company"]
+                        )
+                        bod = body_generic.format(
+                            Name=first["Name"], Company=first["Company"]
+                        )
+
+                    st.markdown(f"**To:** {first['Email']}")
+                    st.markdown(f"**Subject:** {subj}")
+                    st.divider()
+                    st.text(bod)
                 except KeyError as e:
                     st.error(f"Invalid placeholder: {e}")
 
@@ -803,8 +888,45 @@ def main():
         selected_df = edited[edited["Select"]].copy()
         st.info(f"**{len(selected_df)}** recruiter(s) selected for drafts.")
 
-        if st.button(
-            "🚀 Create Drafts in Gmail",
+        # --- Warning for already-drafted or in-contact recruiters ---
+        already_contacted = selected_df[
+            selected_df["Status"].isin([STATUS_DRAFTED, STATUS_IN_CONTACT])
+        ]
+
+        # Track which flagged recruiters to keep after user review
+        final_exclude_indices = []
+
+        if not already_contacted.empty:
+            st.warning(
+                f"⚠️ **{len(already_contacted)} recruiter(s)** below already "
+                f"have a status of **Drafted** or **In-contact**. "
+                f"Are you sure you want to create drafts for them again?"
+            )
+
+            # Show each flagged recruiter with an individual checkbox
+            for idx, row in already_contacted.iterrows():
+                keep = st.checkbox(
+                    f"📌 {row['Name']} — {row['Email']} "
+                    f"({row['Company']}) — **{row['Status']}**",
+                    value=True,  # Checked by default — uncheck to skip
+                    key=f"confirm_{idx}",
+                )
+                if not keep:
+                    final_exclude_indices.append(idx)
+
+            if final_exclude_indices:
+                st.caption(
+                    f"💡 {len(final_exclude_indices)} recruiter(s) will be "
+                    f"skipped unless you check them above."
+                )
+
+        # Remove unchecked flagged recruiters from final selection
+        final_df = selected_df.drop(index=final_exclude_indices, errors="ignore")
+
+        if final_df.empty:
+            st.warning("No recruiters left after filtering. Check some above to proceed.")
+        elif st.button(
+            f"🚀 Create {len(final_df)} Draft(s) in Gmail",
             type="primary",
             use_container_width=True,
         ):
@@ -822,24 +944,35 @@ def main():
             results = []
             drafted_indices = []
 
-            for i, (idx, row) in enumerate(selected_df.iterrows()):
+            for i, (idx, row) in enumerate(final_df.iterrows()):
                 name = row["Name"]
                 email = row["Email"]
                 company = row["Company"]
                 role = row["Role"]
 
                 progress.progress(
-                    i / len(selected_df),
+                    i / len(final_df),
                     text=f"Creating draft for {name} ({email})...",
                 )
 
                 try:
-                    subject = subject_template.format(
-                        Name=name, Company=company, Role=role
-                    )
-                    body = body_template.format(
-                        Name=name, Company=company, Role=role
-                    )
+                    # Pick the right template based on whether Role is filled
+                    has_role = bool(role.strip())
+
+                    if has_role:
+                        subject = subject_role.format(
+                            Name=name, Company=company, Role=role
+                        )
+                        body = body_role.format(
+                            Name=name, Company=company, Role=role
+                        )
+                    else:
+                        subject = subject_generic.format(
+                            Name=name, Company=company
+                        )
+                        body = body_generic.format(
+                            Name=name, Company=company
+                        )
 
                     message_body = build_mime_message(
                         to_email=email,
