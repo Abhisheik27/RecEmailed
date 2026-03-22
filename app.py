@@ -652,6 +652,7 @@ def main():
                 st.session_state.connected = True
                 # Force a fresh load of data
                 st.session_state.pop("df", None)
+                st.session_state.pop("select_override", None)
             except Exception as e:
                 st.error(f"❌ Could not connect to sheet: {e}")
                 st.session_state.connected = False
@@ -767,12 +768,31 @@ def main():
         else:
             st.info("No recruiters yet. Add one above! ☝️")
     else:
-        # Add checkbox column — checked only for "Not Contacted"
+        # Add checkbox column — default: checked for "Not Contacted"
         display_df = display_df.copy()
-        display_df.insert(
-            0, "Select",
-            display_df["Status"].apply(lambda s: s == STATUS_NOT_CONTACTED),
-        )
+
+        # Use session state to support Select All / Deselect All
+        select_override = st.session_state.get("select_override", None)
+        if select_override == "all":
+            display_df.insert(0, "Select", True)
+        elif select_override == "none":
+            display_df.insert(0, "Select", False)
+        else:
+            display_df.insert(
+                0, "Select",
+                display_df["Status"].apply(lambda s: s == STATUS_NOT_CONTACTED),
+            )
+
+        # Select All / Deselect All buttons
+        sel_cols = st.columns([1, 1, 4])
+        with sel_cols[0]:
+            if st.button("☑️ Select All", use_container_width=True):
+                st.session_state.select_override = "all"
+                st.rerun()
+        with sel_cols[1]:
+            if st.button("⬜ Deselect All", use_container_width=True):
+                st.session_state.select_override = "none"
+                st.rerun()
 
         st.caption(
             "📝 All fields are editable — click any cell to modify. "
