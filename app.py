@@ -428,6 +428,88 @@ def load_history(spreadsheet) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# TEMPLATE STORAGE (Templates tab in Google Sheet)
+# ---------------------------------------------------------------------------
+
+
+def get_templates_sheet(spreadsheet):
+    """
+    Get or create the 'Templates' tab in the spreadsheet.
+
+    Stores saved email templates with:
+        - Name (user-defined label)
+        - Type (Role-Specific or Generic)
+        - Subject
+        - Body
+    """
+    try:
+        tmpl_ws = spreadsheet.worksheet("Templates")
+    except gspread.exceptions.WorksheetNotFound:
+        tmpl_ws = spreadsheet.add_worksheet(
+            title="Templates", rows=100, cols=4
+        )
+        tmpl_ws.update(
+            "A1:D1",
+            [["Name", "Type", "Subject", "Body"]],
+        )
+
+    return tmpl_ws
+
+
+def load_saved_templates(spreadsheet) -> pd.DataFrame:
+    """
+    Load saved templates from the Templates tab.
+
+    Returns:
+        DataFrame with columns: Name, Type, Subject, Body
+    """
+    tmpl_ws = get_templates_sheet(spreadsheet)
+    data = tmpl_ws.get_all_values()
+
+    if len(data) <= 1:
+        return pd.DataFrame(columns=["Name", "Type", "Subject", "Body"])
+
+    return pd.DataFrame(data[1:], columns=data[0])
+
+
+def save_template(
+    spreadsheet, name: str, tmpl_type: str, subject: str, body: str
+):
+    """
+    Save a template to the Templates tab.
+
+    If a template with the same name exists, it gets overwritten.
+    """
+    tmpl_ws = get_templates_sheet(spreadsheet)
+    existing = tmpl_ws.get_all_values()
+
+    # Check if template name already exists — overwrite if so
+    for i, row in enumerate(existing[1:], start=2):
+        if row and row[0].strip().lower() == name.strip().lower():
+            tmpl_ws.update(f"A{i}:D{i}", [[name, tmpl_type, subject, body]])
+            return
+
+    # Append new
+    tmpl_ws.append_row(
+        [name, tmpl_type, subject, body],
+        value_input_option="USER_ENTERED",
+    )
+
+
+def delete_template(spreadsheet, name: str):
+    """
+    Delete a template by name from the Templates tab.
+    """
+    tmpl_ws = get_templates_sheet(spreadsheet)
+    existing = tmpl_ws.get_all_values()
+
+    for i, row in enumerate(existing[1:], start=2):
+        if row and row[0].strip().lower() == name.strip().lower():
+            tmpl_ws.delete_rows(i)
+            return
+
+
+# ---------------------------------------------------------------------------
 # EMAIL HELPERS
 # ---------------------------------------------------------------------------
 
@@ -809,17 +891,59 @@ def main():
         "whether the Role column is filled for each recruiter."
     )
 
+    # --- Load Saved Templates ---
+    saved_templates = load_saved_templates(spreadsheet)
+
+    if not saved_templates.empty:
+        with st.expander("📂 Load a Saved Template", expanded=False):
+            template_names = saved_templates["Name"].tolist()
+
+            load_col, del_col = st.columns([3, 1])
+            with load_col:
+                selected_template = st.selectbox(
+                    "Pick a template",
+                    options=template_names,
+                    label_visibility="collapsed",
+                )
+
+            if selected_template:
+                tmpl_row = saved_templates[
+                    saved_templates["Name"] == selected_template
+                ].iloc[0]
+
+                with load_col:
+                    if st.button(
+                        f"⬇️ Load \"{selected_template}\"",
+                        use_container_width=True,
+                    ):
+                        # Set session state so the text inputs pick up the values
+                        if tmpl_row["Type"] == "Role-Specific":
+                            st.session_state.subject_role = tmpl_row["Subject"]
+                            st.session_state.body_role = tmpl_row["Body"]
+                        else:
+                            st.session_state.subject_generic = tmpl_row["Subject"]
+                            st.session_state.body_generic = tmpl_row["Body"]
+                        st.success(f"✅ Loaded \"{selected_template}\" ({tmpl_row['Type']})")
+                        st.rerun()
+
+                with del_col:
+                    st.write("")  # Spacing
+                    if st.button("🗑️", key="del_tmpl", help="Delete this template"):
+                        delete_template(spreadsheet, selected_template)
+                        st.success(f"Deleted \"{selected_template}\"")
+                        st.rerun()
+
     # --- Role-Specific Template ---
     with st.expander("🎯 Role-Specific Template (when Role is filled)", expanded=True):
         st.caption("Placeholders: **{Name}**, **{Company}**, **{Role}**")
         subject_role = st.text_input(
             "Subject Line (role-specific)",
-            value=DEFAULT_SUBJECT_ROLE,
+            value=st.session_state.get("subject_role", DEFAULT_SUBJECT_ROLE),
             key="subject_role",
         )
         body_role = st.text_area(
             "Email Body (role-specific)",
-            value=DEFAULT_TEMPLATE_ROLE,
+            value=st.session_state.get("body_role", DEFAULT_TEMPLATE_ROLE),
             height=250,
             key="body_role",
         )
@@ -829,15 +953,48 @@ def main():
         st.caption("Placeholders: **{Name}**, **{Company}** (no {Role} needed)")
         subject_generic = st.text_input(
             "Subject Line (generic)",
-            value=DEFAULT_SUBJECT_GENERIC,
+            value=st.session_state.get("subject_generic", DEFAULT_SUBJECT_GENERIC),
             key="subject_generic",
         )
         body_generic = st.text_area(
             "Email Body (generic)",
-            value=DEFAULT_TEMPLATE_GENERIC,
+            value=st.session_state.get("body_generic", DEFAULT_TEMPLATE_GENERIC),
             height=250,
             key="body_generic",
         )
+
+    # --- Save Current Template ---
+    with st.expander("💾 Save Current Template", expanded=False):
+        save_cols = st.columns([2, 1])
+        with save_cols[0]:
+            tmpl_name = st.text_input(
+                "Template name",
+                placeholder="e.g. SWE Outreach, Data Engineering...",
+                label_visibility="collapsed",
+            )
+        with save_cols[1]:
+            tmpl_type = st.selectbox(
+                "Type",
+                options=["Role-Specific", "Generic"],
+                label_visibility="collapsed",
+            )
+
+        if st.button("💾 Save Template", use_container_width=True):
+            if not tmpl_name.strip():
+                st.error("Give your template a name.")
+            else:
+                if tmpl_type == "Role-Specific":
+                    save_template(
+                        spreadsheet, tmpl_name.strip(),
+                        "Role-Specific", subject_role, body_role
+                    )
+                else:
+                    save_template(
+                        spreadsheet, tmpl_name.strip(),
+                        "Generic", subject_generic, body_generic
+                    )
+                st.success(f"✅ Saved \"{tmpl_name.strip()}\"!")
+                st.rerun()
 
     # Preview
     if (
