@@ -22,6 +22,7 @@ import json
 import os
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -401,7 +402,7 @@ def log_history(spreadsheet, num_drafts: int, recruiter_names: list[str]):
     """
     history_ws = get_history_sheet(spreadsheet)
 
-    timestamp = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    timestamp = datetime.now(ZoneInfo("America/Chicago")).strftime("%B %d, %Y at %I:%M %p CT")
     names_str = ", ".join(recruiter_names)
 
     history_ws.append_row(
