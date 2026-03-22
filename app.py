@@ -520,6 +520,32 @@ def validate_email(email: str) -> bool:
     return bool(re.match(pattern, email))
 
 
+def _plain_text_to_html(text: str) -> str:
+    """
+    Convert a plain-text email body into simple HTML.
+
+    How it works:
+        1. Split the text on blank lines → each chunk = one paragraph
+        2. Wrap each paragraph in <p>...</p> tags
+        3. This lets Gmail handle word wrapping naturally instead of
+           hard-breaking lines at ~76 characters
+
+    Example:
+        Input:  "Hi John,\\n\\nGreat to meet you.\\n\\nBest,"
+        Output: "<p>Hi John,</p><p>Great to meet you.</p><p>Best,</p>"
+    """
+    # Split on one or more blank lines to get paragraphs
+    paragraphs = re.split(r"\n{2,}", text.strip())
+    # Wrap each paragraph in <p> tags, replacing single newlines with <br>
+    html_parts = []
+    for para in paragraphs:
+        # Replace single newlines within a paragraph with <br> for
+        # cases where the user intentionally has line breaks (e.g. sign-off)
+        inner = para.strip().replace("\n", "<br>")
+        html_parts.append(f"<p>{inner}</p>")
+    return "".join(html_parts)
+
+
 def build_mime_message(
     to_email: str,
     subject: str,
@@ -532,7 +558,10 @@ def build_mime_message(
     msg["to"] = to_email
     msg["subject"] = subject
 
-    msg.attach(MIMEText(body, "plain"))
+    # Convert plain-text body to HTML so Gmail renders paragraphs
+    # with natural word wrap instead of hard line breaks
+    html_body = _plain_text_to_html(body)
+    msg.attach(MIMEText(html_body, "html"))
 
     pdf_part = MIMEApplication(resume_bytes, _subtype="pdf")
     pdf_part.add_header(
