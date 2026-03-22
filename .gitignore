@@ -3,10 +3,6 @@ credentials.json
 token.json
 .streamlit/secrets.toml
 
-# Your personal files
-resume.pdf
-recruiters.xlsx
-
 # Python
 __pycache__/
 *.pyc
@@ -18,3 +14,4 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+recruiters.xlsx

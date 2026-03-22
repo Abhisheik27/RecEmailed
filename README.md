@@ -1,22 +1,26 @@
 # 📧 RecEmailed
 
-Create Gmail draft emails for recruiter outreach — with a simple web UI.
+Create Gmail draft emails for recruiter outreach — powered by Google Sheets.
 
-Upload your recruiter data (Excel) and resume (PDF), customise your email template, and create drafts in your Gmail inbox. **Nothing is sent automatically** — you review and send each draft yourself.
+Manage your recruiter list, customise email templates, and create drafts in Gmail. **Nothing is sent automatically** — you review and send each draft yourself.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-red?logo=streamlit)
 ![Gmail API](https://img.shields.io/badge/Gmail-API-green?logo=gmail)
+![Google Sheets](https://img.shields.io/badge/Google_Sheets-API-blue?logo=googlesheets)
 
 ---
 
-## How It Works
+## Features
 
-1. **Upload** your Excel file (with recruiter Name, Email, Company, Role) and resume PDF
-2. **Customise** the email template with `{Name}`, `{Company}`, `{Role}` placeholders
-3. **Preview** what the email looks like for the first recruiter
-4. **Click "Create Drafts"** → drafts appear in your Gmail → Drafts folder
-5. **Open Gmail**, review each draft, and hit Send when you're ready
+- 🔗 **Google Sheets integration** — your recruiter data lives in a Sheet, not a local file
+- ➕ **Add / edit / search / delete** recruiters directly from the app
+- 📋 **Status tracking** — Not Contacted → Drafted → In-contact
+- 🎯 **Dual templates** — role-specific (when role is known) and generic (when it's not)
+- ⚠️ **Duplicate protection** — warns before re-drafting already-contacted recruiters
+- 📜 **History log** — tracks every run (date, count, recruiter names) in a History tab
+- 📎 **Resume attachment** — PDF attached to every draft
+- 🚀 **Streamlit Cloud ready** — deploy and access from any browser
 
 ---
 
@@ -25,56 +29,65 @@ Upload your recruiter data (Excel) and resume (PDF), customise your email templa
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/RecEmailed.git
+git clone https://github.com/Abhisheik27/RecEmailed.git
 cd RecEmailed
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Set Up Gmail API (One-Time)
+### 2. Set Up Google Cloud (One-Time)
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a project → Enable **Gmail API**
-3. Go to **APIs & Services → Credentials**
-4. Click **Create Credentials → OAuth client ID → Desktop app**
-5. Download the JSON file and save it as **`credentials.json`** in this folder
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → Create a project
+2. Enable **Gmail API** and **Google Sheets API**
+3. Set up **OAuth consent screen** (External) → add your email as a test user
+4. Create **OAuth client ID** (Desktop app) → download the JSON
+5. Rename to `credentials.json` and place in the project folder
 
-> **Note:** If asked to configure a consent screen, choose "External", fill in the app name, and add your email as a test user.
+### 3. Create Your Google Sheet
 
-### 3. Run the App
+Create a new Google Sheet with these headers in Row 1:
 
+| Name | Email | Company | Role | Status |
+|------|-------|---------|------|--------|
+
+### 4. Run the App
+
+```bash
+./run.sh
+```
+
+Or manually:
 ```bash
 source venv/bin/activate
 streamlit run app.py
 ```
 
-A browser tab opens with the UI. On the first run, you'll be asked to log in with Google — after that, your token is cached.
+On first run, log in with Google when prompted. Your token is cached after that.
 
 ---
 
-## Excel File Format
+## How It Works
 
-Your `.xlsx` file needs these exact column headers:
-
-| Name         | Email               | Company | Role              |
-|--------------|---------------------|---------|-------------------|
-| Jane Smith   | jane@example.com    | Google  | Software Engineer |
-| John Doe     | john@example.com    | Meta    | Backend Developer |
-
-Run `python create_sample_data.py` to generate a sample file.
+1. **Paste** your Google Sheet URL in the sidebar → Connect
+2. **Add** recruiters (in-app or directly in Google Sheets)
+3. **Upload** your resume PDF
+4. **Edit** the email template (role-specific or generic)
+5. **Select** who to draft → Click **Create Drafts**
+6. **Open Gmail → Drafts** → review and send
 
 ---
 
-## CLI Mode (Optional)
+## Deploy to Streamlit Cloud
 
-If you prefer a no-UI approach, you can also run the script directly:
-
-```bash
-python draft_emails.py
-```
-
-This reads from `recruiters.xlsx` and `resume.pdf` in the project folder.
+1. Push to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io) → New app → select your repo
+3. Add secrets in **Settings → Secrets**:
+   ```toml
+   sheet_url = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
+   google_token = '<paste contents of token.json>'
+   ```
+4. Deploy 🚀
 
 ---
 
@@ -82,25 +95,25 @@ This reads from `recruiters.xlsx` and `resume.pdf` in the project folder.
 
 ```
 RecEmailed/
-├── app.py                 # Streamlit web UI (main entry point)
-├── draft_emails.py        # CLI version (alternative)
-├── create_sample_data.py  # Generates a sample recruiters.xlsx
-├── requirements.txt       # Python dependencies
-├── credentials.json       # 🔑 YOUR Gmail OAuth credentials (not committed)
-├── token.json             # 🔒 Auto-generated after first login (not committed)
-└── .gitignore             # Keeps credentials out of git
+├── app.py                          # Streamlit web app (main entry point)
+├── requirements.txt                # Python dependencies
+├── run.sh                          # Local launcher script
+├── .gitignore                      # Keeps credentials out of git
+└── .streamlit/
+    ├── config.toml                 # Theme + server config
+    └── secrets.toml.example        # Template for cloud deployment secrets
 ```
 
 ---
 
 ## Security
 
-- `credentials.json` and `token.json` are in `.gitignore` — they won't be committed
-- The app only requests `gmail.compose` scope (create drafts) — no access to read your inbox
-- **Nothing is sent automatically** — you always send manually from Gmail
+- `credentials.json` and `token.json` are gitignored — never committed
+- The app requests only `gmail.compose` + `spreadsheets` scopes
+- **Drafts only** — nothing is sent automatically, ever
 
 ---
 
 ## License
 
-MIT — do whatever you want with it.
+MIT
