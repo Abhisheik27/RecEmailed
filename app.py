@@ -477,6 +477,23 @@ def create_gmail_draft(service, message_body: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _has_auth_config() -> bool:
+    """
+    Check if authentication is available via either:
+        1. Streamlit secrets (for cloud deployment)
+        2. credentials.json file (for local usage)
+    """
+    # Check secrets first
+    try:
+        if "google_token" in st.secrets:
+            return True
+    except Exception:
+        pass
+
+    # Check local file
+    return os.path.exists(CREDENTIALS_FILE)
+
+
 def main():
     """Main Streamlit app."""
 
@@ -519,8 +536,8 @@ def main():
             disabled=not sheet_url,
         )
 
-        # Check for credentials.json
-        if not os.path.exists(CREDENTIALS_FILE):
+        # Check for auth availability
+        if not _has_auth_config():
             st.error(
                 f"⚠️ `{CREDENTIALS_FILE}` not found. "
                 "Download from Google Cloud Console."
@@ -880,8 +897,8 @@ def main():
         st.info("⬆️ Upload your resume PDF first.")
         ready = False
 
-    if not os.path.exists(CREDENTIALS_FILE):
-        st.warning(f"⚠️ `{CREDENTIALS_FILE}` not found.")
+    if not _has_auth_config():
+        st.warning("⚠️ No auth configured. Add credentials.json or Streamlit secrets.")
         ready = False
 
     if ready:
